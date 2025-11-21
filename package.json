@@ -1,0 +1,7 @@
+{
+  "bin": "index.js",
+  "dependencies": {
+    "mathjs": "^15.1.0",
+    "readline": "^1.3.0"
+  }
+}
