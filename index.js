@@ -30,7 +30,7 @@ async function inEx(txt, ele = 'x') {
     }
 }
 
-class SolveEng {
+class RootSolver {
     constructor(obj, tol) {
         this.strFn = obj.data;
         this.compFn = obj.compiled;
@@ -242,26 +242,226 @@ class SolveEng {
     }
 }
 
-async function main() {
-    console.clear();
-    console.log("=======================================================");
-    console.log(" NUMERICAL ROOT FINDER  (by Abdelrahman Ashraf)");
-    console.log("=======================================================\n");
-    console.log("Examples: x^3 - 2*x, sin(x), e^x, (x^3 + 1) / 7, etc\n");
+class LinearSystemSolver {
+    constructor(n, A, B, tol) {
+        this.n = n;
+        this.A = A;
+        this.B = B;
+        this.tol = tol;
+        this.maxSteps = 100;
+        this.isDominant = false;
+    }
+
+    DiagonallyDominant() {
+        if (this.isDominant) return true;
+
+        let rows = this.A.map((row, i) => ({
+            row: [...row],
+            b: this.B[i],
+            originalIndex: i
+        }));
+
+        let newA = new Array(this.n);
+        let newB = new Array(this.n);
+        let used = new Array(this.n).fill(false);
+        let canFix = true;
+
+        for (let i = 0; i < this.n; i++) {
+            let selectedRowIndex = -1;
+
+            for (let r = 0; r < this.n; r++) {
+                if (used[r]) continue;
+
+                let currentRow = rows[r].row;
+                let diagVal = Math.abs(currentRow[i]);
+                let sumOther = 0;
+                for (let c = 0; c < this.n; c++) {
+                    if (c !== i) sumOther += Math.abs(currentRow[c]);
+                }
+
+                if (diagVal >= sumOther) {
+                    selectedRowIndex = r;
+                    break;
+                }
+            }
+
+            if (selectedRowIndex === -1) {
+                let maxVal = -1;
+                for (let r = 0; r < this.n; r++) {
+                    if (!used[r]) {
+                        if (Math.abs(rows[r].row[i]) > maxVal) {
+                            maxVal = Math.abs(rows[r].row[i]);
+                            selectedRowIndex = r;
+                        }
+                    }
+                }
+                if (selectedRowIndex !== -1) {
+                    let currentRow = rows[selectedRowIndex].row;
+                    let sumOther = currentRow.reduce((acc, val, idx) => idx !== i ? acc + Math.abs(val) : acc, 0);
+                    if (Math.abs(currentRow[i]) < sumOther) {
+                        canFix = false;
+                    }
+                }
+            }
+
+            if (selectedRowIndex !== -1) {
+                used[selectedRowIndex] = true;
+                newA[i] = rows[selectedRowIndex].row;
+                newB[i] = rows[selectedRowIndex].b;
+            } else {
+                canFix = false;
+            }
+        }
+
+        this.A = newA;
+        this.B = newB;
+        this.isDominant = true;
+
+        return canFix;
+    }
+
+    formatRow(iter, xValues, error) {
+        let row = { Iter: iter };
+        for (let i = 0; i < this.n; i++) {
+            row[`x${i + 1}`] = Number(xValues[i].toFixed(10));
+        }
+        row['Error'] = (typeof error === 'number') ? Number(error.toFixed(10)) : error;
+        return row;
+    }
+
+    async jacobi() {
+        console.log("\n-> Jacobi Method:");
+        this.DiagonallyDominant();
+
+        let x = new Array(this.n).fill(0);
+        let newX = new Array(this.n).fill(0);
+        let err = 100;
+        let iter = 0;
+        const table = [];
+
+        table.push(this.formatRow(0, x, '--'));
+
+        while (err > this.tol && iter < this.maxSteps) {
+            iter++;
+
+            for (let i = 0; i < this.n; i++) {
+                let sum = 0;
+                for (let j = 0; j < this.n; j++) {
+                    if (j !== i) {
+                        sum += this.A[i][j] * x[j];
+                    }
+                }
+                newX[i] = (this.B[i] - sum) / this.A[i][i];
+            }
+
+            err = 0;
+            for (let i = 0; i < this.n; i++) {
+                let diff = Math.abs(newX[i] - x[i]);
+                if (diff > err) err = diff;
+            }
+
+            x = [...newX];
+            table.push(this.formatRow(iter, x, err));
+        }
+        console.table(table);
+    }
+
+    async gaussSeidel() {
+        console.log("\n-> Gauss-Seidel Method:");
+        this.DiagonallyDominant();
+
+        let x = new Array(this.n).fill(0);
+        let err = 100;
+        let iter = 0;
+        const table = [];
+
+        table.push(this.formatRow(0, x, '--'));
+
+        while (err > this.tol && iter < this.maxSteps) {
+            iter++;
+            let maxErr = 0;
+            let xOld = [...x];
+
+            for (let i = 0; i < this.n; i++) {
+                let sum = 0;
+                for (let j = 0; j < this.n; j++) {
+                    if (j !== i) {
+                        sum += this.A[i][j] * x[j];
+                    }
+                }
+                x[i] = (this.B[i] - sum) / this.A[i][i];
+            }
+
+            for (let i = 0; i < this.n; i++) {
+                let diff = Math.abs(x[i] - xOld[i]);
+                if (diff > maxErr) maxErr = diff;
+            }
+            err = maxErr;
+
+            table.push(this.formatRow(iter, x, err));
+        }
+        console.table(table);
+    }
+
+    async relaxation() {
+        console.log("\n-> Relaxation Method:");
+        this.DiagonallyDominant();
+
+        let x = new Array(this.n).fill(0);
+
+        let residuals = [...this.B];
+
+        let maxRes = 100;
+        let iter = 0;
+        const table = [];
+
+        table.push(this.formatRow(0, x, '--'));
+
+        while (maxRes > this.tol && iter < this.maxSteps) {
+            iter++;
+            let k = -1;
+            maxRes = -1;
+
+            for (let i = 0; i < this.n; i++) {
+                if (Math.abs(residuals[i]) > maxRes) {
+                    maxRes = Math.abs(residuals[i]);
+                    k = i;
+                }
+            }
+
+            if (k === -1) break;
+            let dx = residuals[k] / this.A[k][k];
+
+            x[k] += dx;
+
+            for (let i = 0; i < this.n; i++) {
+                residuals[i] -= this.A[i][k] * dx;
+            }
+
+            table.push(this.formatRow(iter, x, maxRes));
+        }
+        console.table(table);
+    }
+}
+
+async function runRootFinder() {
+    console.log("\n--- SINGLE NON-LINEAR EQUATION ---");
+    console.log("Examples: x^3 - 2*x - 5, cos(x) - x*e^x");
     const fn = await inEx("Enter f(x): ");
     const tol = await askNumber("Accuracy (e.g. 0.001): ");
-    const solver = new SolveEng(fn, tol);
+    const solver = new RootSolver(fn, tol);
+
     while (true) {
-        console.log("Pick a method:");
+        console.log("\nPick a method:");
         console.log("1. Bisection");
         console.log("2. False Position");
-        console.log("3. Fixed Point");
+        console.log("3. Fixed Point (g(x))");
         console.log("4. Newton-Raphson");
         console.log("5. Secant");
         console.log("6. ALL methods");
-        console.log("7. Exit");
-        const choice = await ask("\nYour choice [1-7]: ");
-        console.log('');
+        console.log("7. Back to Main Menu");
+
+        const choice = await ask("Choice: ");
         switch (choice.trim()) {
             case '1': await solver.bisection(); break;
             case '2': await solver.falsePosition(); break;
@@ -275,11 +475,81 @@ async function main() {
                 await solver.newtonRaphson();
                 await solver.secant();
                 break;
-            case '7':
-                rl.close();
-                return;
-            default:
-                console.log("invalid input");
+            case '7': return;
+            default: console.log("Invalid.");
+        }
+    }
+}
+
+async function runLinearSystem() {
+    console.log("\n--- LINEAR SYSTEM SOLVER (AX = B) ---");
+    const n = await askNumber("Number of equations/unknowns (n): ");
+
+    const A = [];
+    const B = [];
+
+    console.log(`\nEnter Coefficients for Matrix A and Constant B:`);
+    console.log(`Format: a1x1 + a2x2 ... = b`);
+
+    for (let i = 0; i < n; i++) {
+        console.log(`\n-- Equation ${i + 1} --`);
+        const row = [];
+        for (let j = 0; j < n; j++) {
+            row.push(await askNumber(`Coeff x${j + 1}: `));
+        }
+        A.push(row);
+        B.push(await askNumber(`Constant (b${i + 1}): `));
+    }
+
+    const tol = await askNumber("\nRequired Accuracy (e.g., 0.0001): ");
+
+    const solver = new LinearSystemSolver(n, A, B, tol);
+
+    while (true) {
+        console.log("\nPick a method:");
+        console.log("1. Jacobi");
+        console.log("2. Gauss-Seidel");
+        console.log("3. Relaxation");
+        console.log("4. ALL methods");
+        console.log("5. Back to Main Menu");
+
+        const choice = await ask("Choice: ");
+        switch (choice.trim()) {
+            case '2': await solver.gaussSeidel(); break;
+            case '1': await solver.jacobi(); break;
+            case '3': await solver.relaxation(); break;
+            case '4':
+                await solver.jacobi();
+                await solver.gaussSeidel();
+                await solver.relaxation();
+                break;
+            case '5': return;
+            default: console.log("Invalid.");
+        }
+    }
+}
+
+async function main() {
+    console.clear();
+    console.log("=======================================================");
+    console.log("   NUMERICAL ANALYSIS SOLVER (by Abdelrahman Ashraf)");
+    console.log("=======================================================");
+
+    while (true) {
+        console.log("\nWhat would you like to solve?");
+        console.log("1. Roots of Non-Linear Equation (f(x) = 0)");
+        console.log("2. System of Linear Equations (Ax = B)");
+        console.log("3. Exit");
+        const choice = await ask("\nYour choice [1-3]: ");
+        if (choice.trim() === '1') {
+            await runRootFinder();
+        } else if (choice.trim() === '2') {
+            await runLinearSystem();
+        } else if (choice.trim() === '3') {
+            rl.close();
+            process.exit(0);
+        } else {
+            console.log("Invalid selection.");
         }
     }
 }
