@@ -321,7 +321,7 @@ class LinearSystemSolver {
     }
 
     formatRow(iter, xValues, error) {
-        let row = { Iter: iter };
+        let row = { };
         for (let i = 0; i < this.n; i++) {
             row[`x${i + 1}`] = Number(xValues[i].toFixed(10));
         }
